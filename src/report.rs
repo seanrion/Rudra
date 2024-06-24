@@ -83,12 +83,12 @@ impl Report {
         description: U,
         item_hir_id: LocalDefId,
     ) -> Report
-    where
-        T: Into<Cow<'static, str>>,
-        U: Into<Cow<'static, str>>,
+        where
+            T: Into<Cow<'static, str>>,
+            U: Into<Cow<'static, str>>,
     {
         let hir_map = tcx.hir();
-        let item_hir_id = hir_map.local_def_id_to_hir_id(item_hir_id);
+        let item_hir_id = tcx.local_def_id_to_hir_id(item_hir_id);
         let span = hir_map.span(item_hir_id);
 
         let source_map = tcx.sess.source_map();
@@ -118,9 +118,9 @@ impl Report {
         description: U,
         color_span: &utils::ColorSpan,
     ) -> Report
-    where
-        T: Into<Cow<'static, str>>,
-        U: Into<Cow<'static, str>>,
+        where
+            T: Into<Cow<'static, str>>,
+            U: Into<Cow<'static, str>>,
     {
         let source_map = tcx.sess.source_map();
         let location = source_map.span_to_diagnostic_string(color_span.main_span());
@@ -172,7 +172,7 @@ impl ReportLogger for StderrLogger {
                 &report.location,
                 &report.source
             )
-            .expect("stderr closed");
+                .expect("stderr closed");
         }
     }
 }
@@ -184,8 +184,8 @@ struct FileLogger {
 
 impl FileLogger {
     fn new<T>(val: T) -> Self
-    where
-        T: Into<PathBuf>,
+        where
+            T: Into<PathBuf>,
     {
         FileLogger {
             reports: Mutex::new(Vec::new()),
@@ -213,13 +213,13 @@ impl ReportLogger for FileLogger {
                 toml::to_string_pretty(&Reports {
                     reports: reports_ref,
                 })
-                .expect("failed to serialize Rudra report")
-                // We manually converts some characters inside toml strings
-                // Match this list with test.py
-                .replace("\\u001B", "\u{001B}")
-                .replace("\\t", "\t"),
+                    .expect("failed to serialize Rudra report")
+                    // We manually converts some characters inside toml strings
+                    // Match this list with test.py
+                    .replace("\\u001B", "\u{001B}")
+                    .replace("\\t", "\t"),
             )
-            .expect("cannot write Rudra report to file");
+                .expect("cannot write Rudra report to file");
         }
     }
 }

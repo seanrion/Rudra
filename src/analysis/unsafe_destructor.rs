@@ -1,8 +1,8 @@
 //! Unsafe destructor detector
 use rustc_hir::def_id::DefId;
-use rustc_hir::intravisit::{self, NestedVisitorMap, Visitor};
+use rustc_hir::intravisit::{self, Visitor};
 use rustc_hir::{
-    Block, BodyId, Expr, HirId, Impl, ImplItemId, ImplItemKind, ItemKind, Node, Unsafety,
+    Block, BodyId, Expr, HirId, Impl, ImplItemId, ImplItemKind, ItemKind, Node, Safety,
 };
 use rustc_middle::ty::TyCtxt;
 
@@ -54,7 +54,7 @@ impl<'tcx> UnsafeDestructorChecker<'tcx> {
             let tcx = self.rcx.tcx();
             if inner::UnsafeDestructorVisitor::check_drop_unsafety(
                 self.rcx,
-                tcx.hir().local_def_id_to_hir_id(impl_item),
+                tcx.local_def_id_to_hir_id(impl_item),
                 drop_trait_def_id,
             ) {
                 rudra_report(Report::with_hir_id(
@@ -98,9 +98,9 @@ mod inner {
         ) -> bool {
             let mut visitor = UnsafeDestructorVisitor::new(rcx);
 
-            let map = visitor.rcx.tcx().hir();
+            // let map = visitor.rcx.tcx().hir();
             if_chain! {
-                if let Some(node) = map.find(hir_id);
+                if let node = visitor.rcx.tcx().hir_node(hir_id);
                 if let Node::Item(item) = node;
                 if let ItemKind::Impl(Impl { of_trait: Some(ref trait_ref), items, .. }) = item.kind;
                 if Some(drop_trait_def_id) == trait_ref.trait_def_id();
@@ -141,8 +141,8 @@ mod inner {
     impl<'tcx> Visitor<'tcx> for UnsafeDestructorVisitor<'tcx> {
         type Map = rustc_middle::hir::map::Map<'tcx>;
 
-        fn nested_visit_map(&mut self) -> NestedVisitorMap<Self::Map> {
-            NestedVisitorMap::OnlyBodies(self.rcx.tcx().hir())
+        fn nested_visit_map(&mut self) -> Self::Map {
+            self.rcx.tcx().hir()
         }
 
         fn visit_block(&mut self, block: &'tcx Block<'tcx>) {
@@ -164,8 +164,8 @@ mod inner {
             if self.unsafe_nest_level > 0 {
                 // If non-extern unsafe function call is detected in unsafe block
                 if let Some(fn_def_id) = expr.ext().as_fn_def_id(tcx) {
-                    let ty = tcx.type_of(fn_def_id);
-                    if let Ok(Unsafety::Unsafe) = tcx.ext().fn_type_unsafety(ty) {
+                    let ty = tcx.type_of(fn_def_id).instantiate_identity();
+                    if let Ok(Safety::Unsafe) = tcx.ext().fn_type_unsafety(ty) {
                         if !tcx.is_foreign_item(fn_def_id) {
                             self.unsafe_found = true;
                         }

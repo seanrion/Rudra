@@ -4,7 +4,7 @@
 extern crate rustc_driver;
 extern crate rustc_errors;
 extern crate rustc_interface;
-
+extern crate rustc_session;
 #[macro_use]
 extern crate log;
 
@@ -12,6 +12,9 @@ use std::env;
 
 use rustc_driver::Compilation;
 use rustc_interface::{interface::Compiler, Queries};
+use rustc_session::config::ErrorOutputType;
+use rustc_session::EarlyDiagCtxt;
+
 
 use rudra::log::Verbosity;
 use rudra::report::{default_report_logger, init_report_logger, ReportLevel};
@@ -33,23 +36,23 @@ impl rustc_driver::Callbacks for RudraCompilerCalls {
         compiler: &Compiler,
         queries: &'tcx Queries<'tcx>,
     ) -> Compilation {
-        compiler.session().abort_if_errors();
+        compiler.sess.dcx().abort_if_errors();
 
         rudra::log::setup_logging(self.config.verbosity).expect("Rudra failed to initialize");
 
         debug!(
             "Input file name: {}",
-            compiler.input().source_name().prefer_local()
+            compiler.sess.io.input.source_name().prefer_local()
         );
-        debug!("Crate name: {}", queries.crate_name().unwrap().peek_mut());
+        // debug!("Crate name: {}", compiler.sess.opts.crate_name.clone().unwrap());
 
         progress_info!("Rudra started");
-        queries.global_ctxt().unwrap().peek_mut().enter(|tcx| {
+        queries.global_ctxt().unwrap().enter(|tcx| {
             analyze(tcx, self.config);
         });
         progress_info!("Rudra finished");
 
-        compiler.session().abort_if_errors();
+        compiler.sess.dcx().abort_if_errors();
         Compilation::Stop
     }
 }
@@ -121,17 +124,17 @@ fn parse_config() -> (RudraConfig, Vec<String>) {
 }
 
 fn main() {
-    rustc_driver::install_ice_hook(); // ICE: Internal Compilation Error
+    // rustc_driver::install_ice_hook("", |_| () ); // ICE: Internal Compilation Error
 
     let exit_code = {
         // initialize the report logger
         // `logger_handle` must be nested because it flushes the logs when it goes out of the scope
         let (config, mut rustc_args) = parse_config();
         let _logger_handle = init_report_logger(default_report_logger());
-
+        let early_dcx = EarlyDiagCtxt::new(ErrorOutputType::default());
         // init rustc logger
         if env::var_os("RUSTC_LOG").is_some() {
-            rustc_driver::init_rustc_env_logger();
+            rustc_driver::init_rustc_env_logger(&early_dcx);
         }
 
         if let Some(sysroot) = compile_time_sysroot() {

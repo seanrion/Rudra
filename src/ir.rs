@@ -2,13 +2,15 @@
 //! Note that this is a translation of non-monomorphized, generic MIR.
 
 use std::borrow::Cow;
-
+use rustc_middle::mir::{BasicBlocks, Place};
 use rustc_hir::def_id::DefId;
-use rustc_index::vec::IndexVec;
+use rustc_index::{IndexSlice, IndexVec};
 use rustc_middle::{
     mir,
-    ty::{subst::SubstsRef, Ty},
+    ty::{GenericArgsRef, Ty},
 };
+use rustc_middle::mir::{Operand, UnwindAction};
+use rustc_span::source_map::Spanned;
 
 #[derive(Debug)]
 pub struct Terminator<'tcx> {
@@ -22,13 +24,13 @@ pub enum TerminatorKind<'tcx> {
     Return,
     StaticCall {
         callee_did: DefId,
-        callee_substs: SubstsRef<'tcx>,
-        args: Vec<mir::Operand<'tcx>>,
-        cleanup: Option<usize>,
-        destination: Option<(mir::Place<'tcx>, usize)>,
+        callee_substs: GenericArgsRef<'tcx>,
+        args: Vec<Spanned<Operand<'tcx>>>,
+        cleanup: UnwindAction,
+        destination: Place<'tcx>,
     },
     FnPtr {
-        value: mir::ConstantKind<'tcx>,
+        value: mir::Const<'tcx>,
     },
     Unimplemented(Cow<'static, str>),
 }
@@ -54,7 +56,7 @@ pub struct Body<'tcx> {
 }
 
 impl<'tcx> mir::HasLocalDecls<'tcx> for Body<'tcx> {
-    fn local_decls(&self) -> &IndexVec<mir::Local, mir::LocalDecl<'tcx>> {
+    fn local_decls(&self) -> &IndexSlice<mir::Local, mir::LocalDecl<'tcx>> {
         &self.original_decls
     }
 }

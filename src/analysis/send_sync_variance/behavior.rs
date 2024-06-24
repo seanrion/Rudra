@@ -121,13 +121,13 @@ pub(crate) fn adt_behavior<'tcx>(
     // For ADT `Foo<A, B>` => adt_ty_name = `Foo`
     let adt_ty_name = tcx.item_name(adt_did);
 
-    let adt_generic_params = &tcx.generics_of(adt_did).params;
+    let adt_generic_params = &tcx.generics_of(adt_did).own_params;
 
     if let Some(relevant_impls) = rcx.index_adt_cache(&adt_did) {
         // Inspect `impl`s relevant to the given ADT.
         for (impl_hir_id, impl_self_ty) in relevant_impls.iter() {
             if let ty::TyKind::Adt(impl_self_adt_def, impl_substs) = impl_self_ty.kind() {
-                let impl_self_ty_name = tcx.item_name(impl_self_adt_def.did);
+                let impl_self_ty_name = tcx.item_name(impl_self_adt_def.did());
                 if adt_ty_name != impl_self_ty_name {
                     continue;
                 }
@@ -151,7 +151,7 @@ pub(crate) fn adt_behavior<'tcx>(
                         if assoc_item.kind == AssocKind::Fn {
                             let fn_did = assoc_item.def_id;
                             let fn_sig = tcx.fn_sig(fn_did).skip_binder();
-                            if let rustc_hir::Unsafety::Unsafe = fn_sig.unsafety {
+                            if let rustc_hir::Safety::Unsafe = fn_sig.safety() {
                                 return None;
                             }
                             if assoc_item.fn_has_self_parameter {
@@ -159,7 +159,7 @@ pub(crate) fn adt_behavior<'tcx>(
                                 // We already know the method takes `self` within its first parameter,
                                 // so we only check whether the first parameter contains a reference.
                                 // e.g. `&self`, `Box<&self>`, `Pin<&self>`, ..
-                                let mut walker = fn_sig.inputs()[0].walk(tcx);
+                                let mut walker = fn_sig.inputs().skip_binder().get(0)?.walk();
                                 while let Some(node) = walker.next() {
                                     if let GenericArgKind::Type(ty) = node.unpack() {
                                         if let ty::TyKind::Ref(_, _, Mutability::Not) = ty.kind() {
@@ -169,7 +169,7 @@ pub(crate) fn adt_behavior<'tcx>(
                                 }
                             } else {
                                 // Check if the function return type equals `Self`.
-                                if TyS::same_type(fn_sig.output(), adt_ty) {
+                                if fn_sig.output().skip_binder()==adt_ty.skip_binder() {
                                     return Some(FnType::ConstructSelf(fn_did));
                                 }
                             }
@@ -190,8 +190,8 @@ pub(crate) fn adt_behavior<'tcx>(
                                 find_pseudo_owned_in_fn_ctxt(tcx, fn_did);
                             let fn_sig = tcx.fn_sig(fn_did).skip_binder();
                             // Check inputs of the constructor
-                            for input_ty in fn_sig.inputs() {
-                                for owned_idx in owned_generic_params_in_ty(tcx, input_ty)
+                            for input_ty in fn_sig.inputs().skip_binder().iter() {
+                                for owned_idx in owned_generic_params_in_ty(tcx, *input_ty)
                                     .into_iter()
                                     .map(|idx| {
                                         *fn_ctxt_pseudo_owned_param_idx_map
@@ -212,13 +212,13 @@ pub(crate) fn adt_behavior<'tcx>(
                             let fn_sig = tcx.fn_sig(method_did).skip_binder();
 
                             // Check generic parameters that are passed as owned `T`.
-                            for ty in fn_sig.inputs_and_output.iter() {
+                            for ty in fn_sig.inputs_and_output().skip_binder().iter() {
                                 for owned_idx in
-                                    owned_generic_params_in_ty(tcx, ty).into_iter().map(|idx| {
-                                        *fn_ctxt_pseudo_owned_param_idx_map
-                                            .get(&idx)
-                                            .unwrap_or(&idx)
-                                    })
+                                owned_generic_params_in_ty(tcx, ty).into_iter().map(|idx| {
+                                    *fn_ctxt_pseudo_owned_param_idx_map
+                                        .get(&idx)
+                                        .unwrap_or(&idx)
+                                })
                                 {
                                     if let Some(&mapped_idx) = generic_param_idx_map.get(&owned_idx)
                                     {
@@ -228,7 +228,7 @@ pub(crate) fn adt_behavior<'tcx>(
                             }
 
                             // Check whether any of the methods return either `&T` or `Option<&T>` or `Result<&T>`.
-                            for peek_idx in borrowed_generic_params_in_ty(tcx, fn_sig.output())
+                            for peek_idx in borrowed_generic_params_in_ty(tcx, fn_sig.output().skip_binder())
                                 .into_iter()
                                 .map(|idx| {
                                     *fn_ctxt_pseudo_owned_param_idx_map.get(&idx).unwrap_or(&idx)

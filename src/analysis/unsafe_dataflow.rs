@@ -1,3 +1,4 @@
+use rustc_driver::pretty::print;
 use rustc_hir::{def_id::DefId, BodyId};
 use rustc_middle::mir::Operand;
 use rustc_middle::ty::{Instance, ParamEnv, TyKind};
@@ -8,15 +9,7 @@ use termcolor::Color;
 
 use crate::graph::GraphTaint;
 use crate::prelude::*;
-use crate::{
-    analysis::{AnalysisKind, IntoReportLevel},
-    graph::TaintAnalyzer,
-    ir,
-    paths::{self, *},
-    report::{Report, ReportLevel},
-    utils,
-    visitor::ContainsUnsafe,
-};
+use crate::{analysis::{AnalysisKind, IntoReportLevel}, graph::TaintAnalyzer, ir, paths::{self, *}, progress_info, report::{Report, ReportLevel}, utils, visitor::ContainsUnsafe};
 
 #[derive(Debug, Snafu)]
 pub enum UnsafeDataflowError {
@@ -46,17 +39,22 @@ impl<'tcx> UnsafeDataflowChecker<'tcx> {
     }
 
     pub fn analyze(self) {
+
         let tcx = self.rcx.tcx();
         let hir_map = tcx.hir();
 
         // Iterates all (type, related function) pairs
         for (_ty_hir_id, (body_id, related_item_span)) in self.rcx.types_with_related_items() {
+
             if let Some(status) = inner::UnsafeDataflowBodyAnalyzer::analyze_body(self.rcx, body_id)
             {
                 let behavior_flag = status.behavior_flag();
+
                 if !behavior_flag.is_empty()
                     && behavior_flag.report_level() >= self.rcx.report_level()
                 {
+
+
                     let mut color_span = unwrap_or!(
                         utils::ColorSpan::new(tcx, related_item_span).context(InvalidSpan) => continue
                     );
@@ -90,6 +88,7 @@ impl<'tcx> UnsafeDataflowChecker<'tcx> {
 }
 
 mod inner {
+    use rustc_span::source_map::Spanned;
     use super::*;
 
     #[derive(Debug, Default)]
@@ -154,8 +153,10 @@ mod inner {
                         None
                     }
                     Ok(body) => {
+
                         let param_env = rcx.tcx().param_env(body_did);
                         let body_analyzer = UnsafeDataflowBodyAnalyzer::new(rcx, param_env, body);
+
                         Some(body_analyzer.analyze())
                     }
                 }
@@ -170,6 +171,8 @@ mod inner {
             let mut taint_analyzer = TaintAnalyzer::new(self.body);
 
             for (id, terminator) in self.body.terminators().enumerate() {
+
+
                 match terminator.kind {
                     ir::TerminatorKind::StaticCall {
                         callee_did,
@@ -203,6 +206,7 @@ mod inner {
                                 .strong_bypasses
                                 .push(terminator.original.source_info.span);
                         } else if paths::WEAK_LIFETIME_BYPASS_LIST.contains(&symbol_vec) {
+
                             if self.fn_called_on_copy(
                                 (callee_did, args),
                                 &[&PTR_WRITE[..], &PTR_DIRECT_WRITE[..]],
@@ -217,11 +221,13 @@ mod inner {
                                 .weak_bypasses
                                 .push(terminator.original.source_info.span);
                         } else if paths::GENERIC_FN_LIST.contains(&symbol_vec) {
+
                             taint_analyzer.mark_sink(id);
                             self.status
                                 .unresolvable_generic_functions
                                 .push(terminator.original.source_info.span);
                         } else {
+
                             // Check for unresolvable generic function calls
                             match Instance::resolve(
                                 self.rcx.tcx(),
@@ -256,20 +262,23 @@ mod inner {
 
         fn fn_called_on_copy(
             &self,
-            (callee_did, callee_args): (DefId, &Vec<Operand<'tcx>>),
+            (callee_did, callee_args): (DefId, &Vec<Spanned<Operand<'tcx>>>),
             paths: &[&[&str]],
         ) -> bool {
             let tcx = self.rcx.tcx();
             let ext = tcx.ext();
             for path in paths.iter() {
+                debug!("{:?}",path);
                 if ext.match_def_path(callee_did, path) {
                     for arg in callee_args.iter() {
+                        debug!("{:?}",arg.node);
                         if_chain! {
-                            if let Operand::Move(place) = arg;
+
+                            if let Operand::Move(place) = arg.node;
                             let place_ty = place.ty(self.body, tcx);
-                            if let TyKind::RawPtr(ty_and_mut) = place_ty.ty.kind();
-                            let pointed_ty = ty_and_mut.ty;
-                            if pointed_ty.is_copy_modulo_regions(tcx.at(DUMMY_SP), self.param_env);
+                            if let TyKind::RawPtr(ty_and_mut,_) = place_ty.ty.kind();
+                            let pointed_ty = ty_and_mut;
+                            if pointed_ty.is_copy_modulo_regions(*tcx.at(DUMMY_SP), self.param_env);
                             then {
                                 return true;
                             }
@@ -308,13 +317,13 @@ mod inner {
     fn vec_set_len_to_0<'tcx>(
         rcx: RudraCtxt<'tcx>,
         callee_did: DefId,
-        args: &Vec<Operand<'tcx>>,
+        args: &Vec<Spanned<Operand<'tcx>>>,
     ) -> bool {
         let tcx = rcx.tcx();
         for arg in args.iter() {
             if_chain! {
-                if let Operand::Constant(c) = arg;
-                if let Some(c_val) = c.literal.try_eval_usize(
+                if let Operand::Constant(c) = &arg.node;
+                if let Some(c_val) = c.const_.try_eval_target_usize(
                     tcx,
                     tcx.param_env(callee_did),
                 );
