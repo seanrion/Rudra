@@ -234,23 +234,35 @@ fn main() {
     }
 
     log::setup_logging(Verbosity::Normal).expect("Rudra failed to initialize");
-
-    if let Some("rudra") = std::env::args().nth(1).as_ref().map(AsRef::as_ref) {
-        progress_info!("Running cargo rudra");
-        // This arm is for when `cargo rudra` is called. We call `cargo rustc` for each applicable target,
-        // but with the `RUSTC` env var set to the `cargo-rudra` binary so that we come back in the other branch,
-        // and dispatch the invocations to `rustc` and `rudra`, respectively.
-        in_cargo_rudra();
-        progress_info!("cargo rudra finished");
-    } else if let Some("rustc") = std::env::args().nth(1).as_ref().map(AsRef::as_ref) {
-        // This arm is executed when `cargo-rudra` runs `cargo rustc` with the `RUSTC_WRAPPER` env var set to itself:
-        // dependencies get dispatched to `rustc`, the final test/binary to `rudra`.
-        inside_cargo_rustc();
-    } else {
-        show_error(
-            "`cargo-rudra` must be called with either `rudra` or `rustc` as first argument.",
-        );
+    if let Some(arg) = env::args().nth(1) {
+        if let Some(file) = Path::new(&arg).file_stem() {
+            match file.to_str(){
+                Some("rudra") =>{
+                    progress_info!("Running cargo rudra");
+                    // This arm is for when `cargo rudra` is called. We call `cargo rustc` for each applicable target,
+                    // but with the `RUSTC` env var set to the `cargo-rudra` binary so that we come back in the other branch,
+                    // and dispatch the invocations to `rustc` and `rudra`, respectively.
+                    in_cargo_rudra();
+                    progress_info!("cargo rudra finished");
+                }
+                Some("rustc") =>{
+                    // This arm is executed when `cargo-rudra` runs `cargo rustc` with the `RUSTC_WRAPPER` env var set to itself:
+                    // dependencies get dispatched to `rustc`, the final test/binary to `rudra`.
+                    inside_cargo_rustc();
+                }
+                _ =>{
+                    show_error(
+                        "`cargo-rudra` must be called with either `rudra` or `rustc` as first argument.",
+                    );
+                }
+            }
+        }
+        else {
+            println!("No argument provided.");
+        }
     }
+
+
 }
 
 #[repr(u8)]

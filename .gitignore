@@ -10,3 +10,4 @@ stderr
 # local file
 .env
 .vscode
+.idea
