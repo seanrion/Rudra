@@ -92,7 +92,7 @@ impl Report {
         let span = hir_map.span(item_hir_id);
 
         let source_map = tcx.sess.source_map();
-        let source = if span.from_expansion() {
+        let source = if !span.from_expansion() {
             // User-Friendly report for macro-generated code
             rustc_hir_pretty::id_to_string(&hir_map, item_hir_id)
         } else {
@@ -100,6 +100,7 @@ impl Report {
                 .span_to_snippet(span)
                 .unwrap_or_else(|e| format!("unable to get source: {:?}", e))
         };
+
         let location = source_map.span_to_diagnostic_string(span);
 
         Report {
